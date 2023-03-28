@@ -1,15 +1,21 @@
-import './App.css';
+import './ContractTester.css';
 import { ethers } from 'ethers';
 import { useState } from 'react';
-import erc20Abi from "./abi/ERC20Test.json";
-import thusdAbi from "./abi/THUSDToken.json";
-import priceFeedAbi from "./abi/PriceFeedTestnet.json"
-import borrowerOperationsAbi from "./abi/BorrowerOperations.json";
-import liquityBorrowerOperationsAbi from "./abi/LiquityBorrowerOperations.json"
-import troveManagerAbi from "./abi/TroveManager.json"
+import erc20Abi from "../../abi/ERC20Test.json";
+import thusdAbi from "../../abi/THUSDToken.json";
+import priceFeedAbi from "../../abi/PriceFeedTestnet.json"
+import borrowerOperationsAbi from "../../abi/BorrowerOperations.json";
+import liquityBorrowerOperationsAbi from "../../abi/LiquityBorrowerOperations.json"
+import troveManagerAbi from "../../abi/TroveManager.json"
+import EventLogger from './EventLogger';
 
-function App() {
 
+function ContractTester() {
+  const functionSignatureBytes = ethers.utils.toUtf8Bytes("adjustTrove(uint256,uint256,uint256,bool,uint256,address,address)");
+  const queryId = ethers.utils.keccak256(functionSignatureBytes );
+  console.log("queryId: ", queryId)
+
+  const [chainId, setChainId] = useState();
   const [walletAddress, setWalletAddress] = useState('');
   const [transactionContract, setTransactionContract] = useState(); 
   const [provider, setProvider] = useState();
@@ -23,32 +29,32 @@ function App() {
 
   // const liquityBorrowersOperationsAddress = "0xa36bA16411AF139737E8E345Cd9422a47856bECa";
 
-  const contractAbi = borrowerOperationsAbi;
-  const contractAddress = borrowerOperationsAddress;
+  const contractAbi = thusdAbi;
+  const contractAddress = thusdAddress;
 
   const sendTransaction = async () => {
     if (signer && contractAddress) {
       const contractConnected = transactionContract.connect(signer);
       console.log('contractConnected: ', contractConnected);
-      const maxBorrowingRate = ethers.utils.parseUnits("0.05", 18);
-      const collateralUnits = ethers.utils.parseUnits("0.21", 18);
-      const thusdUnits = ethers.utils.parseUnits("4000", 18);
+      const maxBorrowingRate = ethers.utils.parseUnits("0.005", 18);
+      const collateralUnits = ethers.utils.parseUnits("0.2", 18);
+      const thusdUnits = ethers.utils.parseUnits("1800", 18);
   
       const upperHint = ethers.constants.AddressZero;
       const lowerHint = ethers.constants.AddressZero;
   
       // Fetch the current network gas price
-      const gasPrice = await signer.getGasPrice();
+      const gasPrice = ethers.utils.parseUnits("0", 18);
       const gasPriceInGwei = ethers.utils.formatUnits(gasPrice, 9); // Convert the gas price to a decimal string with 9 decimal places
       console.log('Gas price (Gwei):', gasPriceInGwei);
       // Estimate the gas required for the openTrove function call
       let gasLimit;
-      gasLimit = ethers.BigNumber.from(600000); // Fallback gas limit in case the estimation fails
+      gasLimit = ethers.BigNumber.from(20000000); // Fallback gas limit in case the estimation fails
   
       const gasLimitWithBuffer = gasLimit.mul(ethers.BigNumber.from(12)).div(ethers.BigNumber.from(10));
-  
+      console.log(await provider.getNetwork())
       try {
-        const tx = await contractConnected.openTrove(maxBorrowingRate, thusdUnits, collateralUnits, upperHint, lowerHint, { value: collateralUnits, gasPrice, gasLimit: gasLimitWithBuffer });
+        const tx = await contractConnected.finalizeAddMintList();
         console.log("tx: ", tx);
   
         // Wait for the transaction to be mined
@@ -67,6 +73,7 @@ function App() {
         }
       } catch (err) {
         console.error('Error populating transaction:', err);
+        console.error('Error message:', err.message);
       }
     }
   };
@@ -101,27 +108,40 @@ function App() {
     };
   };
 
-  async function getProvider () {
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    setProvider(contractAddress, contractAbi, setTransactionContract, provider);
-    return provider;
-  };
+  async function getProvider() {
+    const customNetwork = {
+      name: 'goerli',
+      chainId: 5,
+    };
+    
+    const provider = new ethers.providers.Web3Provider(window.ethereum, customNetwork);
+    await window.ethereum.request({ method: 'eth_chainId', params: [] }).then(chainId => {
+      provider._network.chainId = ethers.BigNumber.from(chainId).toNumber(); // set the chainId
+    });
+  
+    const fetchedChainId = await provider.getNetwork().then(network => network.chainId);
+    console.log('Connected to chainId:', fetchedChainId);
+    setChainId(fetchedChainId);
+    setProvider(provider);
+    return { provider, chainId: fetchedChainId };
+  } 
 
   async function connectWallet() {
-    if(typeof window.ethereum !== 'undefined' && typeof provider === 'undefined')  {
+    if (typeof window.ethereum !== 'undefined' && typeof provider === 'undefined') {
       getProvider()
-        .then(async (provider) => {
+        .then(async ({ provider, chainId }) => {
           const accounts = await requestAccount();
           const userWallet = accounts[0];
           setContract(contractAddress, contractAbi, setTransactionContract, provider);
-          return {provider, userWallet};
+          setChainId(chainId);
+          return { provider, userWallet };
         })
-        .then(({provider, userWallet}) => {
+        .then(({ provider, userWallet }) => {
           getSigner(provider, userWallet);
         })
-        .catch((err) => console.error('Connect wallet error: ', err))
-    };
-  };
+        .catch((err) => console.error('Connect wallet error: ', err));
+    }
+  }
 
   return (
     <div className="App">
@@ -142,4 +162,4 @@ function App() {
   );
 };
 
-export default App;
+export default ContractTester;
